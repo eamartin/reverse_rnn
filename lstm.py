@@ -51,9 +51,10 @@ class Lstm(object):
         ])
 
     def forward(self, x):
+        print 'forward'
         assert x.size == self.N
         inp = np.concatenate([self.h, x], axis=0)
-        print inp
+        print 'inp:', inp
         preact = np.dot(self.W, inp)
 
         f, i, z, o = np.split(preact, 4)
@@ -62,9 +63,9 @@ class Lstm(object):
         z = np.split(np.tanh(z), 2)
         o = sigmoid(o)
 
-        print f
-        print i
-        print z
+        print 'f:', f
+        print 'i:', i
+        print 'z:', z
 
         for idx in self.c.keys():
             this_z = z[idx[2]]
@@ -76,6 +77,7 @@ class Lstm(object):
 
         c = self.combine_c(self.c)
         self.h = o * c
+        print 'h', self.h
 
     @classmethod
     def _gen_iz_solver(cls):
@@ -95,12 +97,12 @@ class Lstm(object):
         return sympy.lambdify(list(b), res)
 
     def backward(self, c_tm1, c_t):
+        print 'backward'
         # both inputs are OrderedDicts from parity to vec
         res = self._lr_solver(c_tm1.values(), c_t.values())
         f = list(res[:2])
 
-        print '\nbackward'
-        print f
+        print 'f:', f
 
         # now need to untangle iz terms. can do this because we know i>=0.
         # This allows taking logs and solving 4x4 linear system
@@ -116,6 +118,8 @@ class Lstm(object):
         z[0] *= sign[0]
         z[1] *= sign[1]
         # now have f, i, z recovered!
+        print 'i:', i
+        print 'z:', z
 
         # undo activations
         pre_f = isigmoid(np.concatenate(f))
@@ -124,12 +128,12 @@ class Lstm(object):
 
         out = np.concatenate([pre_f, pre_i, pre_z])
         inp = np.linalg.lstsq(self.W[:3 * self.N], out)[0]
+        print 'inp:', inp
 
         o = sigmoid(np.dot(self.W[-self.N:], inp))
         c = self.combine_c(c_t)
         h = o * c
-        print h
-        print self.h
+        print 'h', h
 
 def build_solver(parity):
     N = len(parity)
@@ -174,5 +178,5 @@ if __name__ == '__main__':
 
     x = np.random.randn(N)
     m.forward(x)
-
+    print
     m.backward(c_tm1, m.c)
