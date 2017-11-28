@@ -107,10 +107,11 @@ class Lstm(object):
         # now need to untangle iz terms. can do this because we know i>=0.
         # This allows taking logs and solving 4x4 linear system
 
-        # iz = [i0z0, i0(z1^1.1), i1(z0^1.1), i1z1]
+        # iz = [i0z0, i0(z1^1.1), i1(z0^1.1), i1z1], (4, N/2) shape
         iz = np.array(res[2:])
         sign = np.sign(iz)
         assert np.all(sign[:2] == sign[2:])
+        sign = sign[:2]
 
         liz = np.log(np.abs(iz))
         iz_res = np.exp(self._iz_solver(*liz))
