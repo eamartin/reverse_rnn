@@ -32,7 +32,6 @@ class Gru(object):
         self._solver = self._build_solver()
 
     def forward(self, x):
-        print 'forward'
         assert x.size == self.N
 
         h_tm1 = np.concatenate(self.h)
@@ -53,6 +52,7 @@ class Gru(object):
             self.h[i + off] = z[i] * self.h[i + off] + (1. - z[i]) * q[i]
 
         # GILRs
+        # NOTE: could replace r[0], r[1] with revnet output
         off = 2
         for i in range(2):
             self.h[i + off] = z[i] * self.h[i + off] + r[i]
@@ -62,8 +62,9 @@ class Gru(object):
         for i in range(2):
             self.h[i + off] = z[i] * self.h[i + off] + r[1 ^ i]
 
+        return np.concatenate(self.h)
+
     def backward(self, h_tm1, h_t):
-        print 'backward'
         h_tm1, h_t = [self.vec_to_list(a) for a in [h_tm1, h_t]]
 
         res = self._solver(h_tm1, h_t)
@@ -81,8 +82,14 @@ class Gru(object):
 
         b = np.concatenate([upper, lower])
         A = np.vstack([self.U, self.W])
+
+        # solve NxN linear system. Note this can be done more efficiently by
+        # inverting A once at the beginning of backwards pass
         x_t = np.linalg.solve(A, b)
-        print x_t
+        return x_t
+
+    def get_state(self):
+        return np.concatenate(self.h)
 
     @classmethod
     def _build_solver(cls):
@@ -120,8 +127,6 @@ class Gru(object):
 
         _solver = sympy.lambdify(h_tm1 + h_t, res)
         def solver(h_tm1_d, h_t_d):
-            #d = {h_tm1[i]: h_tm1_d[i][0] for i in range(N)}
-            #sympy.pprint(A.subs(d))
             inp = h_tm1_d + h_t_d
             return _solver(*inp)
 
@@ -133,20 +138,77 @@ class Gru(object):
             assert all(arr.size == (self.N / 6) for arr in h)
             return h
 
-        assert isinstance(h, np.array)
-        assert len(h.shape) == 0 and h.shape[0] == self.N
+        assert isinstance(h, np.ndarray)
+        assert len(h.shape) == 1 and h.shape[0] == self.N
         return np.split(h, 6)
+
+
+class GruStack(object):
+    def __init__(self, n_layers, hidden_size):
+        self.N = hidden_size
+        self.grus = [Gru(hidden_size) for i in range(n_layers)]
+
+    def forward(self, x):
+        assert x.size == self.N
+        net = x
+        for gru in self.grus:
+            net = gru.forward(net)
+        return self.get_state()
+
+    def backward(self, inits, top_act):
+        assert inits.shape[0] == len(self.grus)
+        assert inits.shape[1] == top_act.shape[1] == self.N
+
+        all_acts = []
+
+        upper_act = top_act
+        for layer_idx, gru in reversed(list(enumerate(self.grus))):
+            lower_act = []
+            if layer_idx != 0:
+                lower_act.append(inits[layer_idx - 1])
+
+            for i in range(steps):
+                back = upper_act[i - 1] if i != 0 else inits[layer_idx]
+                now = upper_act[i]
+                lower_act.append(gru.backward(back, now))
+
+            all_acts.append(np.stack(lower_act, axis=0))
+            upper_act = lower_act
+
+        return list(reversed(all_acts))
+
+    def get_state(self):
+        return np.stack([g.get_state() for g in self.grus], axis=0)
 
 if __name__ == '__main__':
     np.random.seed(2017)
     N = 6
-    m = Gru(N)
+    n_layers = 1
+    m = GruStack(n_layers, N)
 
-    hs = [copy.copy(m.h)]
-    x = np.random.randn(N)
-    m.forward(x)
-    hs.append(copy.copy(m.h))
+    steps = 2
+    x = np.random.randn(steps, N)
+    states = [m.get_state()]
+    for i in range(steps):
+        states.append(m.forward(x[i]))
+
+    # [steps + 1, layers, units]
+    states = np.array(states)
+
+    print 'forwards'
     print x
+    for i in range(n_layers):
+        print states[:, i, :]
 
     print
-    m.backward(hs[0], hs[1])
+    print 'backwards'
+
+    # take needed data to reverse
+    inits = states[0, :, :]
+    top = states[1:, -1, :]
+
+    print inits
+    print top
+    res = m.backward(inits, top)
+    for act in res:
+        print act
