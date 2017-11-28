@@ -67,41 +67,22 @@ class Gru(object):
         h_tm1, h_t = [self.vec_to_list(a) for a in [h_tm1, h_t]]
 
         res = self._solver(h_tm1, h_t)
-        print res
+        z = np.concatenate(res[:2])
+        gru = np.concatenate(res[2:4])
+        r = np.concatenate(res[4:6])
 
-        print 'f:', f
-
-        # now need to untangle iz terms. can do this because we know i>=0.
-        # This allows taking logs and solving 4x4 linear system
-
-        # iz = [i0z0, i0(z1^1.1), i1(z0^1.1), i1z1], (4, N/2) shape
-        iz = np.array(res[2:])
-        sign = np.sign(iz)
-        assert np.all(sign[:2] == sign[2:])
-        sign = sign[:2]
-
-        liz = np.log(np.abs(iz))
-        iz_res = np.exp(self._iz_solver(*liz))
-        i, z = list(iz_res[:2]), list(iz_res[2:])
-        z[0] *= sign[0]
-        z[1] *= sign[1]
-        # now have f, i, z recovered!
-        print 'i:', i
-        print 'z:', z
+        # recover q
+        q = gru / (1. - z)
 
         # undo activations
-        pre_f = isigmoid(np.concatenate(f))
-        pre_i = isigmoid(np.concatenate(i))
-        pre_z = itanh(np.concatenate(z))
+        h_tm1_v = np.concatenate(h_tm1)
+        upper = isigmoid(np.concatenate([z, r])) - np.dot(self.V, h_tm1_v)
+        lower = itanh(q) - np.dot(self.G, r * np.dot(self.P, h_tm1_v))
 
-        out = np.concatenate([pre_f, pre_i, pre_z])
-        inp = np.linalg.lstsq(self.W[:3 * self.N], out)[0]
-        print 'inp:', inp
-
-        o = sigmoid(np.dot(self.W[-self.N:], inp))
-        c = self.combine_c(c_t)
-        h = o * c
-        print 'h', h
+        b = np.concatenate([upper, lower])
+        A = np.vstack([self.U, self.W])
+        x_t = np.linalg.solve(A, b)
+        print x_t
 
     @classmethod
     def _build_solver(cls):
@@ -165,5 +146,7 @@ if __name__ == '__main__':
     x = np.random.randn(N)
     m.forward(x)
     hs.append(copy.copy(m.h))
+    print x
+
     print
     m.backward(hs[0], hs[1])
