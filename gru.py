@@ -93,6 +93,9 @@ class Gru(object):
 
     @classmethod
     def _build_solver(cls):
+        if hasattr(cls, '_solver_cache'):
+            return cls._solver_cache
+
         N = 6
         matrix = [[0] * N for _ in range(N)]
 
@@ -130,6 +133,7 @@ class Gru(object):
             inp = h_tm1_d + h_t_d
             return _solver(*inp)
 
+        cls._solver_cache = staticmethod(solver)
         return solver
 
     def vec_to_list(self, h):
@@ -159,14 +163,10 @@ class GruStack(object):
         assert inits.shape[0] == len(self.grus)
         assert inits.shape[1] == top_act.shape[1] == self.N
 
-        all_acts = []
-
         upper_act = top_act
+        all_acts = [np.stack(upper_act, axis=0)]
         for layer_idx, gru in reversed(list(enumerate(self.grus))):
             lower_act = []
-            if layer_idx != 0:
-                lower_act.append(inits[layer_idx - 1])
-
             for i in range(steps):
                 back = upper_act[i - 1] if i != 0 else inits[layer_idx]
                 now = upper_act[i]
@@ -175,7 +175,7 @@ class GruStack(object):
             all_acts.append(np.stack(lower_act, axis=0))
             upper_act = lower_act
 
-        return list(reversed(all_acts))
+        return np.array(list(reversed(all_acts)))
 
     def get_state(self):
         return np.stack([g.get_state() for g in self.grus], axis=0)
@@ -183,7 +183,7 @@ class GruStack(object):
 if __name__ == '__main__':
     np.random.seed(2017)
     N = 6
-    n_layers = 1
+    n_layers = 4
     m = GruStack(n_layers, N)
 
     steps = 2
@@ -196,9 +196,11 @@ if __name__ == '__main__':
     states = np.array(states)
 
     print 'forwards'
+    print 'inputs'
     print x
     for i in range(n_layers):
-        print states[:, i, :]
+        print 'layer %d' % i
+        print states[1:, i, :]
 
     print
     print 'backwards'
@@ -207,8 +209,16 @@ if __name__ == '__main__':
     inits = states[0, :, :]
     top = states[1:, -1, :]
 
+    print 'init states'
     print inits
+    print 'top activations'
     print top
+
+    # [layers + 1, steps, units]
     res = m.backward(inits, top)
-    for act in res:
-        print act
+
+    print 'recovered inputs'
+    print res[0]
+    for i in range(n_layers):
+        print 'layer %d' % i
+        print res[i + 1]
