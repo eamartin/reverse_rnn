@@ -26,6 +26,9 @@ class Gru(object):
         self.G = np.random.randn(K, K)
         self.P = np.random.randn(K, N)
 
+        # only need to invert weights once at start of each backwards pass
+        self._A_inv = np.linalg.inv(np.vstack([self.U, self.W]))
+
         # initial state
         self.h = [np.random.randn(N / 6) for _ in range(6)]
 
@@ -81,11 +84,9 @@ class Gru(object):
         lower = itanh(q) - np.dot(self.G, r * np.dot(self.P, h_tm1_v))
 
         b = np.concatenate([upper, lower])
-        A = np.vstack([self.U, self.W])
 
-        # solve NxN linear system. Note this can be done more efficiently by
-        # inverting A once at the beginning of backwards pass
-        x_t = np.linalg.solve(A, b)
+        # multiply by A^{-1} to recover x_t
+        x_t = np.dot(self._A_inv, b)
         return x_t
 
     def get_state(self):
@@ -181,12 +182,14 @@ class GruStack(object):
         return np.stack([g.get_state() for g in self.grus], axis=0)
 
 if __name__ == '__main__':
-    np.random.seed(2017)
+    #np.random.seed(2017)
+    np.seterr(all='raise')
+
     N = 6
-    n_layers = 4
+    n_layers = 5
     m = GruStack(n_layers, N)
 
-    steps = 2
+    steps = 10
     x = np.random.randn(steps, N)
     states = [m.get_state()]
     for i in range(steps):
@@ -198,9 +201,11 @@ if __name__ == '__main__':
     print 'forwards'
     print 'inputs'
     print x
+    """
     for i in range(n_layers):
         print 'layer %d' % i
         print states[1:, i, :]
+    """
 
     print
     print 'backwards'
@@ -209,16 +214,20 @@ if __name__ == '__main__':
     inits = states[0, :, :]
     top = states[1:, -1, :]
 
+    """
     print 'init states'
     print inits
     print 'top activations'
     print top
+    """
 
     # [layers + 1, steps, units]
     res = m.backward(inits, top)
 
     print 'recovered inputs'
     print res[0]
+    """
     for i in range(n_layers):
         print 'layer %d' % i
         print res[i + 1]
+    """
