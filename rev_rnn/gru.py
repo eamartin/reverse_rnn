@@ -1,5 +1,6 @@
 from collections import OrderedDict
 import copy
+from functools import partial
 from pprint import pprint
 import numpy as np
 import sympy
@@ -40,6 +41,12 @@ class Gru(object):
             np.dot(self.G, r * np.dot(self.P, h_tm1))
         )
 
+        print '-' * 20
+        print z
+        print r
+        print q
+        print '-' * 20
+
         z, r, q = [np.split(arr, 2) for arr in [z, r, q]]
 
         # first the GRUs
@@ -71,6 +78,14 @@ class Gru(object):
         # recover q
         q = gru / (1. - z)
 
+        print '-' * 20
+        mat = self._mat(h_tm1, h_t).astype(np.float32)
+        print np.linalg.cond(mat), np.linalg.cond(self._A_inv)
+        print z
+        print r
+        print q
+        print '-' * 20
+
         # undo activations
         h_tm1_v = np.concatenate(h_tm1)
         upper = isigmoid(np.concatenate([z, r])) - np.dot(self.V, h_tm1_v)
@@ -99,8 +114,8 @@ class Gru(object):
             z_idx = row % 2
             kind = row / 2
 
-            h_t.append(sympy.symbols('h_t^(%d)' % row))
-            h_tm1.append(sympy.symbols('h_{t-1}^(%d)' % row))
+            h_t.append(sympy.symbols('h_t^(%d)' % row, real=True))
+            h_tm1.append(sympy.symbols('h_{t-1}^(%d)' % row, real=True))
 
             matrix[row][z_idx] = h_tm1[-1]
 
@@ -123,12 +138,15 @@ class Gru(object):
         res = next(iter(res))
 
         _solver = sympy.lambdify(h_tm1 + h_t, res)
-        def solver(h_tm1_d, h_t_d):
-            inp = h_tm1_d + h_t_d
-            return _solver(*inp)
+        _mat = sympy.lambdify(h_tm1 + h_t, A)
 
-        cls._solver_cache = staticmethod(solver)
-        return solver
+        def wrapper(h_tm1_d, h_t_d, func):
+            inp = h_tm1_d + h_t_d
+            return func(*inp)
+
+        cls._solver_cache = staticmethod(partial(wrapper, func=_solver))
+        cls._mat = staticmethod(partial(wrapper, func=_mat))
+        return cls._solver_cache
 
     def vec_to_list(self, h):
         if isinstance(h, list):
@@ -147,10 +165,10 @@ if __name__ == '__main__':
     np.seterr(all='raise')
 
     N = 6
-    n_layers = 1
+    n_layers = 3
     m = Stack(n_layers, N, Gru)
 
-    steps = 2
+    steps = 1
     x = np.random.randn(steps, N)
     states = [m.get_state()]
     for i in range(steps):
