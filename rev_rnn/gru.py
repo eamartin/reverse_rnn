@@ -3,15 +3,8 @@ import copy
 from pprint import pprint
 import numpy as np
 import sympy
-
-def sigmoid(x):
-    return 1. / (1. + np.exp(-x))
-
-def isigmoid(x):
-    return -np.log((1. / x) - 1.)
-
-def itanh(x):
-    return 0.5 * np.log((1. + x) / (1. - x))
+from .numerics import *
+from .stack import *
 
 class Gru(object):
     def __init__(self, hidden_size):
@@ -148,48 +141,16 @@ class Gru(object):
         return np.split(h, 6)
 
 
-class GruStack(object):
-    def __init__(self, n_layers, hidden_size):
-        self.N = hidden_size
-        self.grus = [Gru(hidden_size) for i in range(n_layers)]
-
-    def forward(self, x):
-        assert x.size == self.N
-        net = x
-        for gru in self.grus:
-            net = gru.forward(net)
-        return self.get_state()
-
-    def backward(self, inits, top_act):
-        assert inits.shape[0] == len(self.grus)
-        assert inits.shape[1] == top_act.shape[1] == self.N
-
-        upper_act = top_act
-        all_acts = [np.stack(upper_act, axis=0)]
-        for layer_idx, gru in reversed(list(enumerate(self.grus))):
-            lower_act = []
-            for i in range(steps):
-                back = upper_act[i - 1] if i != 0 else inits[layer_idx]
-                now = upper_act[i]
-                lower_act.append(gru.backward(back, now))
-
-            all_acts.append(np.stack(lower_act, axis=0))
-            upper_act = lower_act
-
-        return np.array(list(reversed(all_acts)))
-
-    def get_state(self):
-        return np.stack([g.get_state() for g in self.grus], axis=0)
 
 if __name__ == '__main__':
     #np.random.seed(2017)
     np.seterr(all='raise')
 
     N = 6
-    n_layers = 5
-    m = GruStack(n_layers, N)
+    n_layers = 1
+    m = Stack(n_layers, N, Gru)
 
-    steps = 10
+    steps = 2
     x = np.random.randn(steps, N)
     states = [m.get_state()]
     for i in range(steps):
